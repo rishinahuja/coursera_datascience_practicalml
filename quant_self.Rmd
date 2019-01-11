@@ -1,0 +1,164 @@
+---
+title: 'Quantified Self: How Well are Users Exercising?'
+author: "Rishi Ahuja"
+date: "1/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(tidyverse)
+library(lubridate)
+library(writexl)
+library(readxl)
+library(janitor)
+library(data.table)
+library(knitr)
+library(scales)
+library(rpart)
+library(rpart.plot)
+
+```
+
+## R Markdown
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this analysis, I use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The goal of the model developed is to predict the manner in which they did the exercise. 
+
+Subjects were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+1) Exactly according to the specification (Class A)
+2) Throwing the elbows to the front (Class B) - mistake
+3) Lifting the dumbbell only halfway (Class C) - mistake
+4) Lowering the dumbbell only halfway (Class D) - mistake
+5) Throwing the hips to the front (Class E) - mistake
+
+Accelerometers were located on
+1) Belt
+2) Forearms
+3) Arms
+
+```{r upload data}
+
+df_training <- fread("/Users/douser/Desktop/training.csv")
+
+df_test <- fread("/Users/douser/Desktop/test.csv")
+
+```
+
+We are particular interested in the "classe" variable which illustrates the manner in which the exercise was carried out. 
+
+First, we clean the data to ensure that our algorithms can run without errors. There are a large amount of NAs in the data at present. 
+
+```{r clean}
+
+#remove columns that contain NAs. Important to note that removing columns with NAs had same impact on test and training dataset which is a good sign. 
+
+df_training_clean <- 
+  df_training %>% select(which(colMeans(is.na(.)) < 0.95))
+  
+            
+df_test_clean <-
+  df_test %>% select(which(colMeans(is.na(.)) < 0.95))
+
+#looking at these columns, its clear that variables such as timestamps won't impact our ability to predict the outcome classe. The first seven columns don't look relevant to the analysis. 
+
+df_train_use <-
+  df_training_clean %>% select(-c(1:8)) %>% 
+  #classes has to be stored as a factor variable to make confusion matrix work
+  mutate(classe = as.factor(classe))
+
+df_test_use <-
+  df_test_clean %>% select(-c(1:8)) 
+
+```
+
+We then have to prepare our data into two sections: our training and validation sets. We make a 70%/30% split in the data.
+
+```{r set up training and validation}
+
+train_in <- createDataPartition(df_train_use$classe, p=0.7, list=FALSE)
+
+training_df <- df_train_use[train_in,]
+
+testing_df <- df_train_use[-train_in,]
+
+
+```
+
+In the course we primarly learned about three machine learning methods that are applicable to the case: decision treets, random forests, and gradient boosting. We will apply all three models and see which provides the best fit for the data. 
+
+```{r decision tree}
+
+dtree_train <- train(classe ~ ., data = training_df, method="rpart")
+
+dtree_prediction <- predict(dtree_train, testing_df)
+
+confusionMatrix(dtree_prediction, testing_df$classe)
+
+```
+
+Accuracy here is only .4868 - we probably want to explore other strategies to try and get a better prediction. Before we move on, let's get a visual representation of what the algorithm did. 
+
+```{r decision tree map}
+
+rpart.plot(dtree_train$finalModel, roundint=FALSE)
+
+```
+
+Another potential strategy discussed in the class is random forest models. Let's try an implement one on this dataset and compare the performance. 
+
+```{r rf model}
+
+rforest_train <- train(classe ~ ., data = training_df, method = "rf", ntree = 150)
+
+rforest_prediction <- predict(rforest_train, testing_df)
+
+confusionMatrix(rforest_prediction, testing_df$classe)
+
+```
+
+At an accuracy level of .9937 this is quite an effective model. We can also look at the how the accuracy varies across the predictors.
+
+```{r random forest accuracy model}
+
+plot(rforest_train, log="y")
+
+```
+
+
+Though this model is very strong, let's take a look at a gradient boosting model to make sure we are not leaving any potential approaches on the table. 
+
+```{r gradient boosting}
+
+gmb_train <- train(classe ~ ., data = training_df, method = "gbm", verbose = FALSE)
+
+gmb_prediction <- predict(gmb_train, testing_df)
+
+confusionMatrix(gmb_prediction, testing_df$classe)
+
+```
+
+Though the model is effective at .9607 accuracy it is less effective compared to the random forest approach. Both approaches, however, are quite computationally intensive and took a long time to compute. 
+
+```{r plot}
+
+plot(gmb_train, log="y")
+
+```
+
+Given the results, the random forest approach is the best model for the data. We will now evaluate the results on the test dataset. 
+
+```{r test}
+
+final_predict <- predict(rforest_train, df_test_use)
+final_predict
+
+```
+
+
